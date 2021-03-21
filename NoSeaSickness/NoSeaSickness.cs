@@ -71,7 +71,7 @@ namespace NoSeaSickness
         [HarmonyPatch(typeof(Player), nameof(Player.StartShipControl))]
         class StartShipControl_Patch
         {
-            static void Prefix(ShipControlls shipControl)
+            static void Postfix(ShipControlls shipControl)
             {
                 // Debug.Log("*** Static Sailing Camera: Started sailing ***");
                 Configuration.isSailing = true;
@@ -81,7 +81,7 @@ namespace NoSeaSickness
         [HarmonyPatch(typeof(Player), nameof(Player.StopShipControl))]
         class StopShipControl_Patch
         {
-            static void Prefix()
+            static void Postfix()
             {
                 // Debug.Log("*** Static Sailing Camera: Stopped sailing ***");
                 Configuration.isSailing = false;

@@ -14,12 +14,16 @@ namespace NoSeaSickness
     public static class Configuration
     {
         public static bool isSailing = false;
+        public static bool doInitialCameraSetup = true;
         public static Vector3 lastCameraPos = Vector3.zero;
+
+        public static bool userInput = false; // Did the user move the camera?
+
         public static ConfigEntry<bool> modEnabled;
         public static ConfigEntry<float> maxDistanceConfig;
     }
 
-    [BepInPlugin(Constants.modGUID, "No Sea Sickness", "0.1.0")]
+    [BepInPlugin(Constants.modGUID, "No Sea Sickness", "0.1.2")]
     [BepInProcess("valheim.exe")]
     public class NoSeaSickness : BaseUnityPlugin
     {
@@ -27,7 +31,7 @@ namespace NoSeaSickness
 
         void Awake()
         {
-            Configuration.modEnabled = Config.Bind("General", "Enable static camera", true, "Disallow vertical camera movement except when the mouse is moved. Takes effect immediately.");
+            Configuration.modEnabled = Config.Bind("General", "Enable static camera", true, "Disallow vertical camera movement except when the mouse/controller is moved. Takes effect immediately.");
             Configuration.maxDistanceConfig = Config.Bind("General", "Max camera distance while sailing", 20f, "Max camera distance while sailing. Game default 6, recommended 20 or higher. Takes effect immediately.");
 
             harmony.PatchAll();
@@ -36,21 +40,29 @@ namespace NoSeaSickness
         [HarmonyPatch(typeof(GameCamera), "GetCameraPosition")]
         class GetCameraPosition_Patch
         {
-            static void Postfix(ref Vector3 pos)
+            static void Postfix(float dt, ref Vector3 pos)
             {
+                // pos here always refers to the game's preferred position, i.e. one that bobs up and down while sailing.
+                // It's always created from scratch prior to this Postfix getting called, so if we changed it the last frame
+                // that now has no meaning; it will jump back to the game's preferred position anyway.
+
                 if (!Configuration.modEnabled.Value || !Configuration.isSailing)
                     return;
 
-                if (Configuration.isSailing) 
+                if (Configuration.isSailing)
                 {
-                    if (Math.Abs(Input.GetAxis("Mouse Y")) < 0.025 && Math.Abs(Input.GetAxis("Mouse ScrollWheel")) == 0)
+                    if (Configuration.doInitialCameraSetup)
                     {
-                        // Looks like 0.05 is the smallest possible value we can get (according to docs and in practice), but better play it safe than to test for equality here.
-                        // The mouse did not move -- so the camera shouldn't, either.
-                        // However, if the user scrolled, let the position update.
-                        pos.y = Configuration.lastCameraPos.y;
+                        // Fix camera getting stuck in the wrong position until player input
+                        Configuration.lastCameraPos = pos;
+                        Configuration.doInitialCameraSetup = false;
+                        return;
+                    }
 
-                        // TODO: CONTROLLER SUPPORT!!
+                    if (!Configuration.userInput)
+                    {
+                        // The mouse/controller did not move -- so the camera shouldn't, either.
+                        pos.y = Configuration.lastCameraPos.y;
                     }
                 }
 
@@ -58,11 +70,22 @@ namespace NoSeaSickness
             }
         }
 
-        // Increase the max zoom-out level to reduce the angular size of the boat bobbing
+        [HarmonyPatch(typeof(Player), nameof(Player.SetMouseLook))]
+        class SetMouseLook_Patch
+        {
+            static bool Prefix(Vector2 mouseLook)
+            {
+                // Despite the name "SetMouseLook", this also accounts for controller input (the caller adds them together and sends them here).
+                Configuration.userInput = mouseLook.y != 0 || Input.GetAxis("Mouse ScrollWheel") != 0f;
+                return true;
+            }
+        }
+
+        // Increase the max zoom-out level to reduce the angular size of the ship bobbing
         [HarmonyPatch(typeof(GameCamera), "UpdateCamera")]
         class UpdateCamera_Patch
         {
-            static void Prefix(ref float ___m_maxDistanceBoat)
+            static void Postfix(ref float ___m_maxDistanceBoat)
             {
                 ___m_maxDistanceBoat = Configuration.maxDistanceConfig.Value;
             }
